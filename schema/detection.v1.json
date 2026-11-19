@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lensdetect.example/schema/detection.v1.json",
+  "title": "lens.detection.v1",
+  "description": "Candidate detection emitted by a perception worker to the event core. Versioned; breaking changes create v2 and CI checks compatibility.",
+  "type": "object",
+  "required": ["camera", "agency", "hazard", "model_version", "captured_at"],
+  "additionalProperties": false,
+  "properties": {
+    "trace_id": {"type": "string", "description": "Minted at ingest; follows the detection through every hop."},
+    "camera": {"type": "string", "pattern": "^lrn:[a-z]+:[a-z]{2}-[a-z]{2}-[0-9]+\\.[a-z0-9-]+:video:camera/[A-Za-z0-9_-]+$", "description": "Camera resource name, e.g. lrn:gov:us-st-06.dot:video:camera/CAM01"},
+    "agency": {"type": "string", "pattern": "^[a-z]{2}-[a-z]{2}-[0-9]+\\.[a-z0-9-]+$", "description": "Owning agency, {country}-{level}-{fips}.{agency}"},
+    "hazard": {"type": "string", "enum": ["disabled_vehicle", "pedestrian_on_roadway", "object_in_road", "wrong_way_vehicle", "vehicle_fire"]},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "model_version": {"type": "string"},
+    "dedupe_key": {"type": "string", "description": "Idempotency key; the core returns the existing alert for a repeat."},
+    "probe": {"type": "boolean", "default": false, "description": "Synthetic probe through the production path. Never shown to operators, never counted."},
+    "captured_at": {"type": "string", "format": "date-time", "description": "Ingest clock when the frame was captured."},
+    "onset_estimate": {"type": "string", "format": "date-time", "description": "First frame the hazard was observed."},
+    "confirmed_at": {"type": "string", "format": "date-time"},
+    "emitted_at": {"type": "string", "format": "date-time"},
+    "bbox": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
+    "stationary_seconds": {"type": "number"},
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "image_b64": {"type": "string", "contentEncoding": "base64", "contentMediaType": "image/jpeg"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}
+      }
+    }
+  }
+}

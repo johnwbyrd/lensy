@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LENS Detect Console</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="stale-banner" class="banner hidden" role="alert">
+  LENS connection stale. Alerts may not be arriving. Follow standard dispatch procedure until this clears.
+</div>
+<header>
+  <div class="brand">LENS Detect <span class="muted">prototype console</span></div>
+  <div class="hdr-stats" id="hdr-stats"></div>
+  <label class="op">Operator <input id="operator" placeholder="e.g. disp-07" maxlength="32"></label>
+  <span id="conn" class="chip">connecting</span>
+</header>
+<main>
+  <section class="col queue">
+    <h2>Alert queue <span id="queue-count" class="count"></span></h2>
+    <ul id="queue"></ul>
+    <h3>Recent decisions</h3>
+    <ul id="history" class="history"></ul>
+  </section>
+  <section class="col detail" id="detail">
+    <div class="empty">Select an alert.</div>
+  </section>
+  <section class="col side">
+    <h2>Feed health <span id="coverage" class="count"></span></h2>
+    <table id="feeds"><thead><tr><th>Camera</th><th>Status</th><th>Age</th><th>fps</th></tr></thead><tbody></tbody></table>
+    <h2>Alert path</h2>
+    <table id="latency"><thead><tr><th>Stage</th><th>p50</th><th>p95</th><th>n</th></tr></thead><tbody></tbody></table>
+    <div id="probe" class="probe"></div>
+    <h2>Supervisor</h2>
+    <div id="killswitches"></div>
+  </section>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

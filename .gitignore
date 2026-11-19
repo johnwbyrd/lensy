@@ -1,0 +1,10 @@
+# runtime data: event log, evidence stills, generated videos
+data/
+# build output
+console/dist/
+console/node_modules/
+eventcore/eventcore
+bin/
+__pycache__/
+*.pyc
+.venv/
