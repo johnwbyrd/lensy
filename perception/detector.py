@@ -50,6 +50,7 @@ class Candidate:
 class FeedHealth:
     frozen: bool = False
     scene_change: bool = False
+    illumination_change: bool = False
     frame_delta: float = 0.0
 
 
@@ -76,6 +77,13 @@ class StationaryObjectDetector:
     freeze_seconds: float = 2.0
     freeze_delta: float = 0.6
     scene_change_delta: float = 45.0
+    # Illumination guard. When a large share of the analyzed region differs
+    # from the slow background at once, the world did not fill with stopped
+    # cars: the light changed (dusk, dawn, streetlights, cloud). The slow model
+    # is re-seeded and tracks are dropped instead of raising alerts. The first
+    # live alert from a Caltrans camera was a streetlight coming on at dusk.
+    illumination_fraction: float = 0.12
+    illumination_alpha: float = 0.5
     _long: Optional[np.ndarray] = field(default=None, repr=False)
     _short: Optional[np.ndarray] = field(default=None, repr=False)
     _prev: Optional[np.ndarray] = field(default=None, repr=False)
@@ -139,6 +147,16 @@ class StationaryObjectDetector:
         close_to_short = np.abs(gray - self._short) < self.still_threshold
         mask = (far_from_long & close_to_short).astype(np.uint8) * 255
         mask = cv2.bitwise_and(mask, self._roi_mask)
+
+        roi_px = max(1, int(np.count_nonzero(self._roi_mask)))
+        changed = np.count_nonzero(mask) / roi_px
+        self.health.illumination_change = changed > self.illumination_fraction and self._n > 60
+        if self.health.illumination_change:
+            a = self.illumination_alpha
+            self._long = self._long * (1 - a) + gray * a
+            self._short = self._short * (1 - self.short_alpha) + gray * self.short_alpha
+            self._tracks.clear()
+            return []
         # Morphology scaled to the analyzed width so small frames keep small objects.
         k = max(3, int(7 * w / 640) | 1)
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
@@ -213,7 +231,8 @@ class StationaryObjectDetector:
         label = f"{cand.hazard} {cand.confidence:.2f} stationary {cand.stationary_seconds:.0f}s"
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
         ly = max(th + 8, y - 6)
-        cv2.rectangle(img, (x - 2, ly - th - 4), (x + tw + 4, ly + 4), (20, 20, 20), -1)
-        cv2.putText(img, label, (x, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 200, 255), 1)
+        lx = max(2, min(x, img.shape[1] - tw - 6))
+        cv2.rectangle(img, (lx - 2, ly - th - 4), (lx + tw + 4, ly + 4), (20, 20, 20), -1)
+        cv2.putText(img, label, (lx, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 200, 255), 1)
         cv2.putText(img, f"{camera} {cand.model_version}", (8, img.shape[0] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
         return img

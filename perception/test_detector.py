@@ -78,6 +78,24 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class IlluminationTests(unittest.TestCase):
+    def test_global_brightness_step_does_not_alarm(self):
+        import numpy as np
+        det = StationaryObjectDetector(confirm_seconds=1.0, roi=(0.0, 0.0, 1.0, 1.0))
+        rng = np.random.default_rng(1)
+        base = np.full((180, 320, 3), 90, np.uint8)
+        t = 0.0
+        for _ in range(70):   # settle the backgrounds
+            det.process(t, np.clip(base + rng.normal(0, 2, base.shape), 0, 255).astype(np.uint8)); t += 0.2
+        flagged, cands = False, []
+        for _ in range(40):   # streetlights on: everything gets 60 levels brighter and stays there
+            cands += det.process(t, np.clip(base + 60 + rng.normal(0, 2, base.shape), 0, 255).astype(np.uint8))
+            flagged = flagged or det.health.illumination_change
+            t += 0.2
+        self.assertTrue(flagged, "illumination change not flagged")
+        self.assertEqual(cands, [])
+
+
 class ConfigTests(unittest.TestCase):
     def test_polygon_roi_and_mask_rasterize(self):
         import numpy as np
