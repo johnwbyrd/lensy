@@ -12,7 +12,7 @@ interface Alert {
   evidence_url?: string; evidence_sha256?: string; bbox: number[]; stationary_seconds: number;
   operator?: string; note?: string; timeline: Timeline; latency_ms: Record<string, number>;
 }
-interface Feed { camera: string; agency: string; status: string; last_heartbeat: string; last_frame_ts: string; fps: number; frozen: boolean; scene_change: boolean; source?: string; seconds: Record<string, number>; }
+interface Feed { camera: string; agency: string; status: string; last_heartbeat: string; last_frame_ts: string; fps: number; frozen: boolean; scene_change: boolean; source?: string; label?: string; frame_age_s: number; seconds: Record<string, number>; }
 interface KillSwitch { agency: string; active: boolean; operator?: string; reason?: string; since: string; }
 interface Pct { n: number; p50_ms: number; p95_ms: number; p99_ms: number; max_ms: number; }
 interface Metrics { uptime_s: number; last_seq: number; event_counts: Record<string, number>; alerts_by_status: Record<string, number>; feeds_by_status: Record<string, number>; effective_coverage: number; lost_coverage_seconds: Record<string, number>; latency: Record<string, Pct>; probes: { total: number; last_ok: string; last_ok_age_s: number }; kill_switches: KillSwitch[] | null; }
@@ -144,7 +144,7 @@ function renderQueue() {
     const li = document.createElement('li');
     li.className = (a.id === selected ? 'selected ' : '') + (a.escalated ? 'escalated' : '');
     li.innerHTML = `<div class="row"><span class="hazard">${a.hazard.replace(/_/g, ' ')}</span><span class="status ${a.status}">${a.status}</span></div>
-      <div class="row meta"><span>${short(a.camera)} · ${a.agency}</span><span>${(a.confidence * 100).toFixed(0)}%</span></div>
+      <div class="row meta"><span>${short(a.camera)}${feeds.get(a.camera)?.label ? ' · ' + feeds.get(a.camera)!.label : ''} · ${a.agency}</span><span>${(a.confidence * 100).toFixed(0)}%</span></div>
       <div class="row meta"><span>${new Date(a.timeline['committed_at']).toLocaleTimeString()}</span><span>${a.escalated ? 'ESCALATED · ' : ''}${Math.round(ageS(a.timeline['presented_at'] || a.timeline['committed_at']))}s open</span></div>`;
     li.onclick = () => { selected = a.id; renderAll(); };
     ul.appendChild(li);
@@ -179,7 +179,7 @@ function renderDetail() {
     <div class="title"><b>${a.hazard.replace(/_/g, ' ')}</b><span class="status ${a.status}">${a.status}${a.escalated ? ' · escalated' : ''}</span></div>
     <div class="actions">${actions}</div>
     <dl>
-      <dt>camera</dt><dd>${a.camera}</dd>
+      <dt>camera</dt><dd>${a.camera}${feeds.get(a.camera)?.label ? '<div class="small">' + feeds.get(a.camera)!.label + '</div>' : ''}</dd>
       <dt>owner</dt><dd>${a.agency}</dd>
       <dt>confidence</dt><dd>${(a.confidence * 100).toFixed(1)}% · stationary ${a.stationary_seconds}s · bbox ${a.bbox.join(',')}</dd>
       <dt>model</dt><dd>${a.model_version}</dd>
@@ -197,11 +197,12 @@ function renderDetail() {
 function renderSide() {
   const fl = [...feeds.values()].sort((a, b) => a.camera.localeCompare(b.camera));
   $('#feeds tbody').innerHTML = fl.map(f => {
-    const age = ageS(f.last_heartbeat);
+    const hbAge = ageS(f.last_heartbeat);
+    const frameAge = f.status === 'stale' ? hbAge + Math.max(0, f.frame_age_s || 0) : Math.max(0, (f.frame_age_s || 0)) + hbAge;
     const secs = f.seconds || {}; const tot = Object.values(secs).reduce((s, v) => s + v, 0) || 1;
     const cov = ((secs['fresh'] || 0) / tot * 100).toFixed(0);
-    return `<tr title="${f.source || ''}"><td><span class="dot ${f.status}"></span>${short(f.camera)}<div class="small">${f.agency} · watched ${cov}%</div></td>
-      <td>${f.status}${f.scene_change ? ' · moved?' : ''}</td><td class="num">${age.toFixed(0)}s</td><td class="num">${f.fps.toFixed(1)}</td></tr>`;
+    return `<tr title="${f.source || ''} · heartbeat ${hbAge.toFixed(0)}s ago"><td><span class="dot ${f.status}"></span>${short(f.camera)}<div class="small">${f.label ? f.label + ' · ' : ''}${f.agency} · watched ${cov}%</div></td>
+      <td>${f.status}${f.scene_change ? ' · moved?' : ''}</td><td class="num">${frameAge.toFixed(0)}s</td><td class="num">${f.fps.toFixed(1)}</td></tr>`;
   }).join('') || '<tr><td colspan="4" class="small">No feeds have reported. Nothing is being watched.</td></tr>';
   const m = metrics;
   $('#coverage').textContent = m ? `${(m.effective_coverage * 100).toFixed(1)}% watched` : '';

@@ -46,6 +46,8 @@ type HeartbeatIn struct {
 	Frozen      bool      `json:"frozen"`
 	SceneChange bool      `json:"scene_change"`
 	Source      string    `json:"source"`
+	Label       string    `json:"label"`
+	FrameAgeS   float64   `json:"frame_age_s"`
 }
 
 type ActionIn struct {
@@ -232,7 +234,7 @@ func (c *Core) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ev := &Event{Type: EvFeedHeartbeat, Agency: in.Agency, Resource: in.Camera, Actor: "perception",
-		Payload: mustJSON(heartbeatPayload{FrameTS: in.FrameTS, FPS: in.FPS, Frozen: in.Frozen, SceneChange: in.SceneChange, Source: in.Source})}
+		Payload: mustJSON(heartbeatPayload{FrameTS: in.FrameTS, FPS: in.FPS, Frozen: in.Frozen, SceneChange: in.SceneChange, Source: in.Source, Label: in.Label, FrameAgeS: in.FrameAgeS})}
 	if err := c.Commit(ev); err != nil {
 		writeErr(w, 500, err.Error())
 		return

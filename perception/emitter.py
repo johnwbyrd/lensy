@@ -37,11 +37,13 @@ class EventCoreClient:
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read() or b"{}")
 
-    def heartbeat(self, camera: str, agency: str, frame_ts: datetime, fps: float, frozen: bool, scene_change: bool, source: str) -> bool:
+    def heartbeat(self, camera: str, agency: str, frame_ts: datetime, fps: float, frozen: bool, scene_change: bool,
+                  source: str, label: str = "", frame_age_s: float = 0.0) -> bool:
         try:
             code, _ = self._post("/v1/feeds/heartbeat", {
                 "camera": camera, "agency": agency, "frame_ts": iso(frame_ts), "fps": round(fps, 2),
-                "frozen": frozen, "scene_change": scene_change, "source": source,
+                "frozen": frozen, "scene_change": scene_change, "source": source, "label": label,
+                "frame_age_s": round(frame_age_s, 2),
             })
             return code < 300
         except (urllib.error.URLError, TimeoutError, OSError):

@@ -53,9 +53,18 @@ class FeedHealth:
     frame_delta: float = 0.0
 
 
+Polygon = list[list[float]]   # [[x, y], ...] as fractions of the frame
+
+
 @dataclass
 class StationaryObjectDetector:
-    roi: tuple[float, float, float, float] = (0.0, 0.70, 1.0, 0.14)   # x, y, w, h as fractions
+    # Region(s) of interest: a rectangle (x, y, w, h) or one or more polygons,
+    # all as fractions of the frame so one config serves any resolution.
+    roi: tuple[float, float, float, float] | Polygon | list[Polygon] = (0.0, 0.70, 1.0, 0.14)
+    # Rectangles (x0, y0, x1, y1) to ignore: burned-in timestamps and captions.
+    mask: list[list[float]] = field(default_factory=list)
+    # Frames are analyzed at this width; evidence keeps full resolution.
+    proc_width: int = 640
     confirm_seconds: float = 3.0
     min_area: int = 350
     long_alpha: float = 0.003
@@ -74,10 +83,34 @@ class StationaryObjectDetector:
     _tracks: dict = field(default_factory=dict)
     _next_id: int = 1
     _still_since: Optional[float] = None
+    _roi_mask: Optional[np.ndarray] = field(default=None, repr=False)
+    _scale: float = 1.0
     health: FeedHealth = field(default_factory=FeedHealth)
 
+    def _region_mask(self, h: int, w: int) -> np.ndarray:
+        """Rasterize the ROI minus the overlay masks once per frame size."""
+        m = np.zeros((h, w), np.uint8)
+        roi = self.roi
+        if roi and isinstance(roi[0], (int, float)):
+            rx, ry, rw, rh = roi  # type: ignore[misc]
+            m[int(ry * h):int((ry + rh) * h), int(rx * w):int((rx + rw) * w)] = 255
+        else:
+            polys = roi if roi and isinstance(roi[0][0], (list, tuple)) else [roi]  # type: ignore[index]
+            for poly in polys:
+                pts = np.array([[int(x * w), int(y * h)] for x, y in poly], np.int32)
+                cv2.fillPoly(m, [pts], 255)
+        for x0, y0, x1, y1 in self.mask:
+            m[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)] = 0
+        return m
+
     def process(self, ts: float, image: np.ndarray) -> list[Candidate]:
-        """Analyze one frame captured at time ts (seconds)."""
+        """Analyze one frame captured at time ts (seconds). Bounding boxes are
+        returned in the coordinates of the image passed in."""
+        if image.shape[1] > self.proc_width:
+            self._scale = image.shape[1] / self.proc_width
+            image = cv2.resize(image, (self.proc_width, int(image.shape[0] / self._scale)), interpolation=cv2.INTER_AREA)
+        else:
+            self._scale = 1.0
         gray = cv2.GaussianBlur(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (5, 5), 0).astype(np.float32)
         self._n += 1
         if self._long is None:
@@ -99,16 +132,16 @@ class StationaryObjectDetector:
         self._prev = gray
 
         h, w = gray.shape
-        rx, ry, rw, rh = self.roi
-        x0, y0, x1, y1 = int(rx * w), int(ry * h), int((rx + rw) * w), int((ry + rh) * h)
+        if self._roi_mask is None or self._roi_mask.shape != (h, w):
+            self._roi_mask = self._region_mask(h, w)
 
         far_from_long = np.abs(gray - self._long) > self.diff_threshold
         close_to_short = np.abs(gray - self._short) < self.still_threshold
         mask = (far_from_long & close_to_short).astype(np.uint8) * 255
-        roi_mask = np.zeros_like(mask)
-        roi_mask[y0:y1, x0:x1] = 255
-        mask = cv2.bitwise_and(mask, roi_mask)
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+        mask = cv2.bitwise_and(mask, self._roi_mask)
+        # Morphology scaled to the analyzed width so small frames keep small objects.
+        k = max(3, int(7 * w / 640) | 1)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
@@ -158,8 +191,19 @@ class StationaryObjectDetector:
                 t.emitted = True
                 area = t.bbox[2] * t.bbox[3]
                 conf = min(0.98, 0.55 + 0.25 * min(1.0, area / 2500.0) + 0.18 * min(1.0, dur / (2 * self.confirm_seconds)))
-                out.append(Candidate("disabled_vehicle", round(conf, 3), t.bbox, t.first_seen, ts, round(dur, 2), t.track_id))
+                sc = self._scale
+                bbox = tuple(int(round(v * sc)) for v in t.bbox)
+                out.append(Candidate("disabled_vehicle", round(conf, 3), bbox, t.first_seen, ts, round(dur, 2), t.track_id))  # type: ignore[arg-type]
         return out
+
+    def debug_view(self, image: np.ndarray) -> np.ndarray:
+        """Frame with the analyzed region tinted, for checking a camera's config."""
+        img = image.copy()
+        h, w = img.shape[:2]
+        m = self._region_mask(h, w)
+        tint = img.copy()
+        tint[m > 0] = (0.4 * tint[m > 0] + np.array([0, 150, 255]) * 0.6).astype(np.uint8)
+        return tint
 
     @staticmethod
     def annotate(image: np.ndarray, cand: Candidate, camera: str) -> np.ndarray:

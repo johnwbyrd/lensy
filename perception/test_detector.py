@@ -76,3 +76,47 @@ class DetectorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConfigTests(unittest.TestCase):
+    def test_polygon_roi_and_mask_rasterize(self):
+        import numpy as np
+        det = StationaryObjectDetector(roi=[[[0.0, 0.5], [1.0, 0.5], [1.0, 1.0], [0.0, 1.0]]], mask=[[0.0, 0.8, 0.5, 1.0]])
+        m = det._region_mask(100, 200)
+        self.assertEqual(m[25, 100], 0)      # above the polygon
+        self.assertEqual(m[60, 100], 255)    # inside
+        self.assertEqual(m[90, 20], 0)       # inside polygon but masked overlay
+        self.assertEqual(m[90, 150], 255)    # inside polygon, outside mask
+        self.assertGreater(int(np.count_nonzero(m)), 0)
+
+    def test_cameras_json_is_well_formed(self):
+        import json
+        cfg = json.load(open(os.path.join(os.path.dirname(__file__), "cameras.json")))
+        ids = set()
+        for c in cfg["cameras"]:
+            for key in ("id", "camera", "agency", "label", "source", "roi", "confirm_seconds"):
+                self.assertIn(key, c, f"{c.get('id')} missing {key}")
+            self.assertNotIn(c["id"], ids); ids.add(c["id"])
+            self.assertTrue(c["camera"].endswith("/" + c["id"]))
+            for poly in c["roi"]:
+                self.assertGreaterEqual(len(poly), 3)
+                for x, y in poly:
+                    self.assertTrue(0 <= x <= 1 and 0 <= y <= 1)
+            StationaryObjectDetector(roi=c["roi"], mask=c.get("mask", []))._region_mask(72, 128)
+
+    def test_downscaled_bbox_maps_back_to_full_frame(self):
+        p = os.path.join(tempfile.mkdtemp(), "hd.mp4")
+        generate(p, seconds=12, fps=15, stop_at=4.0)
+        cap = cv2.VideoCapture(p)
+        det = StationaryObjectDetector(confirm_seconds=2.0, proc_width=320, min_area=60)   # analyze at half size
+        t, cands, i = 0.0, [], 0
+        while True:
+            ok, img = cap.read()
+            if not ok:
+                break
+            if i % 3 == 0:
+                cands += det.process(t, img)
+            t += 1 / 15; i += 1
+        self.assertEqual(len(cands), 1)
+        x, y, w, h = cands[0].bbox
+        self.assertTrue(300 <= x <= 420 and 250 <= y <= 290, f"bbox not in full-frame coordinates: {cands[0].bbox}")

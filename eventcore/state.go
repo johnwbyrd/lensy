@@ -41,6 +41,8 @@ type Feed struct {
 	Frozen        bool      `json:"frozen"`
 	SceneChange   bool      `json:"scene_change"`
 	Source        string    `json:"source,omitempty"`
+	Label         string    `json:"label,omitempty"`
+	FrameAgeS     float64   `json:"frame_age_s"` // age of newest decoded frame at last heartbeat
 	// Coverage accounting: seconds in each status since first seen.
 	Seconds       map[string]float64 `json:"seconds"`
 	lastAccounted time.Time
@@ -118,6 +120,8 @@ type heartbeatPayload struct {
 	Frozen      bool      `json:"frozen"`
 	SceneChange bool      `json:"scene_change"`
 	Source      string    `json:"source,omitempty"`
+	Label       string    `json:"label,omitempty"`
+	FrameAgeS   float64   `json:"frame_age_s,omitempty"`
 }
 
 type killSwitchPayload struct {
@@ -228,6 +232,10 @@ func (s *State) Apply(ev Event) {
 		if p.Source != "" {
 			f.Source = p.Source
 		}
+		if p.Label != "" {
+			f.Label = p.Label
+		}
+		f.FrameAgeS = p.FrameAgeS
 		if p.Frozen {
 			f.Status = "frozen"
 		} else {

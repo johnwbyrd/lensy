@@ -45,13 +45,23 @@ class FeedAdapter:
         self.cap: cv2.VideoCapture | None = None
         self.reconnects = 0
 
-    def _open(self) -> None:
-        self.cap = cv2.VideoCapture(self.source)
-        if not self.cap.isOpened():
-            raise RuntimeError(f"cannot open source {self.source}")
+    def _open(self, attempts: int = 1) -> None:
+        """Open the source. Network streams get several attempts with backoff:
+        a public HLS origin that is slow to answer is a normal condition, and
+        the right response is to keep trying while the core, seeing no
+        heartbeat, reports the camera as not watched."""
+        delay = 1.0
+        for i in range(attempts):
+            self.cap = cv2.VideoCapture(self.source)
+            if self.cap.isOpened():
+                return
+            if i + 1 < attempts:
+                time.sleep(delay)
+                delay = min(30.0, delay * 2)
+        raise RuntimeError(f"cannot open source {self.source} after {attempts} attempt(s)")
 
     def frames(self) -> Iterator[Frame]:
-        self._open()
+        self._open(attempts=1 if self.is_file else 8)
         assert self.cap is not None
         src_fps = self.cap.get(cv2.CAP_PROP_FPS) or 15.0
         stride = max(1, int(round(src_fps / self.analyze_fps)))
@@ -86,4 +96,7 @@ class FeedAdapter:
             if raw % stride:
                 continue
             seq += 1
-            yield Frame(seq=seq, captured_at=utcnow(), media_time=raw / src_fps, image=img, source_fps=src_fps)
+            # Streams report their own media clock; files are paced by frame count.
+            pos_ms = self.cap.get(cv2.CAP_PROP_POS_MSEC) if not self.is_file else 0.0
+            media_time = pos_ms / 1000.0 if pos_ms and pos_ms > 0 else raw / src_fps
+            yield Frame(seq=seq, captured_at=utcnow(), media_time=media_time, image=img, source_fps=src_fps)
